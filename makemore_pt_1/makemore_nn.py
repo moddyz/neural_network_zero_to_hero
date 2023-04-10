@@ -1,77 +1,28 @@
 #!/usr/bin/env python
 
+"""makemore part 1 code implementing a bigram model using a neural network"""
+
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
 
-def draw(N, index_to_char):
-    plt.figure(figsize=(16, 16))
-    plt.imshow(N, cmap="Blues")
-    for y in range(27):
-        for x in range(27):
-            char_pair = index_to_char[y] + index_to_char[x]
-            plt.text(x, y, char_pair, ha="center", va="bottom", color="gray", fontsize=7)
-            plt.text(x, y, N[y, x].item(), ha="center", va="top", color="gray", fontsize=7)
-
-    plt.axis("off")
-    plt.show()
-
-
-def sample_name(P, index_to_char, g):
-    cur_idx = 0
-    word = ''
-    while True:
-        p = P[cur_idx]
-        next_idx = torch.multinomial(p, num_samples=1, replacement=True, generator=g).item()
-        next_char = index_to_char[next_idx]
-        if next_char == ".":
-            break
-        word += next_char
-        cur_idx = next_idx
-
-    return word
-
-
-
-def loss_function(N):
-    P = N.float()
-    P = P / P.sum(1, keepdim=True)
-
-    g = torch.Generator().manual_seed(2147483646)
-    for x in range(10):
-        print(sample_name(P, index_to_char, g))
-
-    log_likelihood = 0.0
-    n = 0
-    for w in words[:3]:
-        chars = ["."] + list(w) + ["."]
-        for ch1, ch2 in zip(chars, chars[1:]):
-
-            i_x = char_to_index[ch1]
-            i_y = char_to_index[ch2]
-            prob = P[i_x, i_y]
-            logprob = torch.log(prob)
-            log_likelihood += logprob
-            n += 1
-            print(f"{ch1}{ch2}: {prob:.4f} {logprob:.4f}")
-
-    print(f"{log_likelihood=}")
-    nll = -log_likelihood
-    print(f"{nll=}")
-    nnll = nll / n
-    print(f"{nnll=}")
-
-
 if __name__ == "__main__":
+
+    #
+    # Prepare training data
+    #
+
+    # Read input data
     with open("names.txt", "r") as f:
         words = f.read().splitlines()
 
+    # Build index <-> character mappings
     index_to_char = ["."]
     index_to_char.extend(sorted(list(set(''.join(words)))))
     char_to_index = {char: index for index, char in enumerate(index_to_char)}
 
-    # Create inputs and targets based on words.
+    # Create inputs and targets tensors based on words.
     inputs = []
     targets = []
     for w in words:
@@ -99,32 +50,33 @@ if __name__ == "__main__":
     g = torch.Generator().manual_seed(2147483647)
     W = torch.randn((27, 27), generator=g, requires_grad=True)
 
-    print(num_inputs, targets.shape)
-
-
+    #
+    # Prepare our model
+    #
 
     for num_pass in range(100):
 
-        #
-        # Forward pass
-        #
+        print(f"Training iteration: {num_pass}")
 
-        # Calculate probabilities
+        # Forward pass
         logits = (inputs_enc @ W)
         counts = logits.exp()
         probs = counts / counts.sum(1, keepdim=True)
         target_probs = probs[torch.arange(num_inputs), targets]
-        print(target_probs.shape)
         log_target_probs = target_probs.log()
         loss = -log_target_probs.mean()
+
+        print(f"\tComputed loss: {loss}")
 
         # Backward pass
         W.grad = None
         loss.backward()
-
+        # Gradient descent
         W.data += -50 * W.grad
 
-        print(loss)
+    #
+    # Sample from our model to generate new words like the training set
+    #
 
     g = torch.Generator().manual_seed(2147483647)
 
@@ -147,4 +99,4 @@ if __name__ == "__main__":
                 break
             word += sample_char
 
-        print(word)
+        print(f"Sampled word: {word}")
