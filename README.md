@@ -1,4 +1,4 @@
-# kaparthy_notes
+# neural_network_zero_to_hero
 
-Notes and code following the kaparthy "neural network: zero to hero" youtube series
-
+Code following Andrej Karpathy's "Neural network: Zero to Hero" tutorial series:
+https://karpathy.ai/zero-to-hero.html
