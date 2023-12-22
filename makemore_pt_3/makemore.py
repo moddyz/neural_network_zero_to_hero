@@ -99,12 +99,11 @@ def main():
     # Construct hidden layer #1 (aka neurons / weights)
     #
 
-    # Because each
     per_input_dim = num_context * num_dim_per_char
 
     num_neurons = 200
-    W1 = torch.randn((per_input_dim, num_neurons), generator=g) # Weights
-    b1 = torch.randn(num_neurons, generator=g) # Biases
+    W1 = torch.randn((per_input_dim, num_neurons), generator=g) * 0.1 # Weights
+    b1 = torch.randn(num_neurons, generator=g) * 0.01 # Biases
 
     # Construct output layer
     W2 = torch.randn((num_neurons, num_characters), generator=g) * 0.1 # Weights
@@ -120,25 +119,44 @@ def main():
     losses = []
     for step in range(num_steps):
 
+        #
+        # Forward pass
+        #
+
         # Create a random list of indices for sampling from our inputs in this training step.
         batch_indices = torch.randint(0, inputs_tr.shape[0], (batch_size,), generator=g)
 
-        # Extract
-        inputs_tr[batch_indices]
+        # Get the input entries corresponding to the batch indices.
+        inputs_batch = inputs_tr[batch_indices]
 
-        # Forward pass
+        # Translate the inputs to their embedding encoding.
+        inputs_emb = C[inputs_batch]
 
-        inputs_emb = C[inputs_tr[batch_indices]]
-        h = torch.tanh(inputs_emb.view(inputs_emb.shape[0], per_input_dim) @ W1 + b1)
+        # Each input entry is now a 3 by 2 matrix.  Concatenate into a 6 dimensional vector.
+        inputs_emb_concat = inputs_emb.view(inputs_emb.shape[0], per_input_dim)
 
-        plt.hist(h.view(-1).tolist(), 50)
-        plt.show()
+        # Multiply by weights and add bias.
+        h_preactivation = inputs_emb_concat @ W1 + b1
+
+        # Map values to be within -1 and 1
+        h = torch.tanh(h_preactivation)
+
+        #plt.hist(h.view(-1).tolist(), 50)
+        #plt.show()
+
+        #
         logits = h @ W2 + b2
-        loss = F.cross_entropy(logits, targets_tr[batch_indices]) # computes log likelihood for classification purposes
 
+        # computes log likelihood for classification purposes
+        targets_batch = targets_tr[batch_indices]
+        loss = F.cross_entropy(logits, targets_batch)
+
+        # Store losses to later draw the loss over epoch.
         losses.append(loss.item())
 
+        #
         # Backward pass
+        #
 
         # Reset gradient first.
         for parameter in parameters:
@@ -154,8 +172,6 @@ def main():
 
         if step % 10000 == 0:
             print(f"{step:7d} / {num_steps:7d}: {loss.item()}")
-
-        break
 
     # Compute training loss.
     emb_tr = C[inputs_tr]
