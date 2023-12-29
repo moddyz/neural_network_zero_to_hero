@@ -3,6 +3,7 @@
 """Train a language model with text from Shakespeare's play, such that it can generate
 sentences like Shakespeare."""
 
+import os
 import argparse
 import collections
 
@@ -26,39 +27,80 @@ def main():
     )
     parser.add_argument(
         "-i",
-        "--input-path",
+        "--input-data-path",
         help="File path to the input text data to train on",
         default="input.txt",
         type=str,
     )
     parser.add_argument(
-        "-p",
-        "--param-path",
-        help="File path to store the trained parameters.",
+        "-io",
+        "--input-optimizer-path",
+        help="File path to load existing optimizer state for resuming training.",
+        default="",
+        type=str,
+    )
+    parser.add_argument(
+        "-ip",
+        "--input-parameters-path",
+        help="File path to load existing model parameters for resuming training.",
+        default="",
+        type=str,
+    )
+    parser.add_argument(
+        "-oo",
+        "--output-optimizer-path",
+        help="File path to save the trained optimizer.",
+        default="optimizer.pth",
+        type=str,
+    )
+    parser.add_argument(
+        "-op",
+        "--output-parameters-path",
+        help="File path to save the trained parameters.",
         default="parameters.pth",
         type=str,
     )
 
     args = parser.parse_args()
 
+
     # Set up our model's hyper parameters.
     hyper_params = HyperParameters(
         train_iters=args.num_iterations,
     )
 
-    # Create the model
+    # Instantiate the model.
     model = GPT(hyper_params=hyper_params).to(hyper_params.device)
 
-    # Train the model.
-    train(args.input_path, hyper_params, model)
+    # Should we load existing parameters?
+    if args.input_parameters_path:
+        input_parameters = torch.load(args.input_parameters_path)
+        model.load_state_dict(input_parameters)
 
-    # Save out the parameters.
-    param_path = os.path.abspath(os.path.normpath(args.param_path))
-    torch.save(model.state_dict(), param_path)
+    # Instantiate the optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params.learning_rate)
+
+    # Should we load existing optimizer state?
+    if args.input_optimizer_path:
+        input_optimizer_state = torch.load(args.input_optimizer_path)
+        model.load_state_dict(input_optimizer_state)
+
+    output_parameters_path = os.path.abspath(os.path.normpath(args.output_parameters_path))
+    output_optimizer_path = os.path.abspath(os.path.normpath(args.output_optimizer_path))
+
+    # Train the model.
+    for _ in train(args.input_data_path, hyper_params, model, optimizer):
+
+        # Train will yield at checkpoints so we can incrementally save state.
+        torch.save(model.state_dict(), output_parameters_path)
+        torch.save(optimizer.state_dict(), output_optimizer_path)
+
+    # Save out the parameters one last time.
+    torch.save(model.state_dict(), output_parameters)
     print(f"Saved out trained model parameters at: {args.output_parameters}")
 
 
-def train(input_path, hyper_params, model):
+def train(input_path, hyper_params, model, optimizer):
 
     print(f"Reading {input_path}...")
     with open(input_path, "r", encoding="utf-8") as f:
@@ -80,9 +122,6 @@ def train(input_path, hyper_params, model):
 
     print(f"Starting training with {hyper_params}")
 
-    # Create an Adam optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params.learning_rate)
-
     for train_iter in range(hyper_params.train_iters):
         # Extract some training data.
         inputs, targets = get_batch(train_data, hyper_params)
@@ -100,7 +139,7 @@ def train(input_path, hyper_params, model):
         optimizer.step()
 
         # Estimate and print the optimization progress at every 1 percentage.
-        if train_iter % (hyper_params.train_iters / 100) == 0:
+        if train_iter % (hyper_params.train_iters // 100) == 0:
             train_loss = estimate_loss(model, train_data, hyper_params)
             val_loss = estimate_loss(model, val_data, hyper_params)
             progress_percentage = (
@@ -109,6 +148,8 @@ def train(input_path, hyper_params, model):
             print(
                 f"progress: {progress_percentage:.01f}%, training iteration: {train_iter + 1}/{hyper_params.train_iters}, training loss: {train_loss:.05f}, validation loss: {val_loss:.05f}"
             )
+
+            yield
 
 
 def get_batch(data, hyper_params):
