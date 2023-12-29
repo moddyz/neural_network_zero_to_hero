@@ -229,5 +229,3 @@ class MultiHeadAttention(nn.Module):
         out = self.proj(out)
         out = self.dropout(out)
         return out
-
-

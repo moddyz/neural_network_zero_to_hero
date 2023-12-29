@@ -8,10 +8,12 @@ import argparse
 import collections
 
 import torch
+from torch.utils.data import DataLoader, random_split
 
 import matplotlib.pyplot as plt
 
-from model import HyperParameters, GPT, ASCII_TRANSCODER
+from model import HyperParameters, GPT
+from dataset import AsciiTextFileDataset
 
 
 def main():
@@ -105,32 +107,34 @@ def main():
         torch.save(optimizer.state_dict(), output_optimizer_path)
 
     # Save out the parameters one last time.
-    torch.save(model.state_dict(), output_parameters)
-    print(f"Saved out trained model parameters at: {args.output_parameters}")
+    torch.save(model.state_dict(), output_parameters_path)
+    print(f"Saved out trained model parameters at: {args.output_parameters_path}")
 
 
 def train(input_path, hyper_params, model, optimizer):
 
     print(f"Reading {input_path}...")
-    with open(input_path, "r", encoding="utf-8") as f:
-        text = f.read()
-
-    print(f"Length of dataset in characters: {len(text)}")
-
-    # Create a tensor and encode the data.
-    encoded_text = ASCII_TRANSCODER.encode(text)
-    data = torch.tensor(encoded_text, dtype=torch.long)
+    full_dataset = AsciiTextFileDataset(input_path, hyper_params.block_size)
+    print(f"Length of dataset in characters: {len(full_dataset)}")
 
     # Separate data into training & validation sets.
-    train_data_size = int(0.9 * len(data))
-    train_data = data[:train_data_size]
-    val_data = data[train_data_size:]
+    train_size = int(0.9 * len(full_dataset))
+    val_size = len(full_dataset) - train_size
+    train_dataset, val_dataset = random_split(full_dataset, [train_size, val_size])
+    train_dataloader = DataLoader(train_dataset, batch_size=hyper_params.batch_size, shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=hyper_params.batch_size, shuffle=False)
 
     print(f"Starting training with {hyper_params}")
 
+    train_dataloader_iter = iter(train_dataloader)
+
     for train_iter in range(hyper_params.train_iters):
         # Extract some training data.
-        inputs, targets = get_batch(train_data, hyper_params)
+        inputs, targets = next(train_dataloader_iter)
+
+        # Upload to configured device.
+        inputs = inputs.to(hyper_params.device)
+        targets = targets.to(hyper_params.device)
 
         # Evaluate the loss
         logits, loss = model(inputs, targets)
@@ -146,8 +150,8 @@ def train(input_path, hyper_params, model, optimizer):
 
         # Estimate and print the optimization progress at every 1 percentage.
         if train_iter % (hyper_params.train_iters // 100) == 0:
-            train_loss = estimate_loss(model, train_data, hyper_params)
-            val_loss = estimate_loss(model, val_data, hyper_params)
+            train_loss = estimate_loss(model, train_dataloader, hyper_params)
+            val_loss = estimate_loss(model, val_dataloader, hyper_params)
             progress_percentage = (
                 float(train_iter + 1) / hyper_params.train_iters * 100.0
             )
@@ -158,36 +162,8 @@ def train(input_path, hyper_params, model, optimizer):
             yield
 
 
-def get_batch(data, hyper_params):
-    """Extract a subset of data to be used for training.
-
-    Args:
-        data (torch.tensor): a batch size x context size array of character indices
-        hyper_params (HyperParameters): the parameters for training and evaluating the current model
-    """
-
-    # Generate random indices
-    random_indices = torch.randint(
-        len(data) - (hyper_params.block_size + 1), (hyper_params.batch_size,)
-    )
-
-    # Extract rows of inputs and their corresponding targets.
-    inputs = torch.stack(
-        [data[i : i + hyper_params.block_size] for i in random_indices]
-    )
-    targets = torch.stack(
-        [data[i + 1 : i + hyper_params.block_size + 1] for i in random_indices]
-    )
-
-    # Upload data to specified device.
-    inputs = inputs.to(hyper_params.device)
-    targets = targets.to(hyper_params.device)
-
-    return inputs, targets
-
-
 @torch.no_grad()
-def estimate_loss(model, data, hyper_params):
+def estimate_loss(model, dataloader, hyper_params):
     """This method is called during the model training phase to provide a
     more representative estimate of the loss across our data set.
 
@@ -205,10 +181,15 @@ def estimate_loss(model, data, hyper_params):
     # Initialize storage to hold loss values.
     losses = torch.zeros(hyper_params.eval_iters)
 
+    dataloader_iter = iter(dataloader)
+
     # Compute the loss multiple times.
     for eval_index in range(hyper_params.eval_iters):
         # Evaluate & store the loss for a batch
-        inputs, targets = get_batch(data, hyper_params)
+        inputs, targets = next(dataloader_iter)
+        inputs = inputs.to(hyper_params.device)
+        targets = targets.to(hyper_params.device)
+
         _, loss = model(inputs, targets)
         losses[eval_index] = loss.item()
 
@@ -216,25 +197,6 @@ def estimate_loss(model, data, hyper_params):
     model.train()
 
     return losses.mean()
-
-
-def visualize_weights_vs_gradients(parameters):
-    # Visualize weight vs gradientlize histograms
-    plt.figure(figsize=(20, 4))  # width and height of the plot
-    legends = []
-    for i, p in enumerate(parameters):
-        t = p.grad
-        print(
-            "weight %10s | mean %+f | std %e | grad:data ratio %e"
-            % (tuple(p.shape), t.mean(), t.std(), t.std() / p.std())
-        )
-        hy, hx = torch.histogram(t, density=True)
-        plt.plot(hx[:-1].detach(), hy.detach())
-        legends.append(f"{i} {tuple(p.shape)}")
-        plt.legend(legends)
-        plt.title("weights gradient distribution")
-
-    plt.show()
 
 
 if __name__ == "__main__":
