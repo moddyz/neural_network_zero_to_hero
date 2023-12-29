@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+from transcoder import AsciiTranscoder
+
 
 def get_optimal_device():
     """Pick the optimal device based in the current environment.
@@ -19,6 +21,9 @@ def get_optimal_device():
         return torch.device("mps")
     else:
         return torch.device("cpu")
+
+
+ASCII_TRANSCODER = AsciiTranscoder()
 
 
 """Parameters for training the GPT model"""
@@ -51,6 +56,9 @@ class HyperParameters:
     """The learning rate"""
     dropout_prob: float = 0.2
 
+    """Size of the vocabulary"""
+    vocab_size: int = ASCII_TRANSCODER.vocab_size
+
     """The device to store and execute our neutral network."""
     device: torch.device = get_optimal_device()
 
@@ -61,11 +69,15 @@ class HyperParameters:
 
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size, hyper_params):
+
+    def __init__(self, hyper_params=None):
         super().__init__()
 
+        hyper_params = hyper_params or HyperParameters()
+        self.hyper_params = hyper_params
+
         self.token_embedding_table = nn.Embedding(
-            vocab_size, hyper_params.embed_size
+            hyper_params.vocab_size, hyper_params.embed_size
         ).to(hyper_params.device)
 
         self.position_embedding_table = nn.Embedding(
@@ -74,7 +86,7 @@ class GPT(nn.Module):
 
         self.blocks = nn.Sequential(*[Block(hyper_params) for _ in range(hyper_params.num_block_layers)])
         self.layer_norm = nn.LayerNorm(hyper_params.embed_size)
-        self.linear_head = nn.Linear(hyper_params.embed_size, vocab_size)
+        self.linear_head = nn.Linear(hyper_params.embed_size, hyper_params.vocab_size)
 
         self._device = hyper_params.device
 
@@ -107,10 +119,10 @@ class GPT(nn.Module):
 
         return logits, loss
 
-    def generate(self, inputs, max_new_tokens, hyper_params):
+    def generate(self, inputs, max_new_tokens):
         for _ in range(max_new_tokens):
             # Crop input to last block_size tokens for making predictions
-            inputs_cropped = inputs[:, -hyper_params.block_size:]
+            inputs_cropped = inputs[:, -self.hyper_params.block_size:]
 
             # Compute predictions
             logits, _ = self(inputs_cropped)

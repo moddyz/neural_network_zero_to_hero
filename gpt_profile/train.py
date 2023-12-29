@@ -10,37 +10,65 @@ import torch
 
 import matplotlib.pyplot as plt
 
-from model import HyperParameters, GPT
+from model import HyperParameters, GPT, ASCII_TRANSCODER
 
 
 def main():
-    parser = argparse.ArgumentParser("train.py", description="Launches training for a language model")
-    parser.add_argument("-n", "--num-iterations", help="Number of training iterations.", default=10000)
+    parser = argparse.ArgumentParser(
+        "train.py", description="Launches training for a language model"
+    )
+    parser.add_argument(
+        "-n",
+        "--num-iterations",
+        help="Number of training iterations.",
+        default=10000,
+        type=int,
+    )
+    parser.add_argument(
+        "-i",
+        "--input-path",
+        help="File path to the input text data to train on",
+        default="input.txt",
+        type=str,
+    )
+    parser.add_argument(
+        "-p",
+        "--param-path",
+        help="File path to store the trained parameters.",
+        default="parameters.pth",
+        type=str,
+    )
+
     args = parser.parse_args()
-    train(num_iterations=args.num_iterations)
+
+    # Set up our model's hyper parameters.
+    hyper_params = HyperParameters(
+        train_iters=args.num_iterations,
+    )
+
+    # Create the model
+    model = GPT(hyper_params=hyper_params).to(hyper_params.device)
+
+    # Train the model.
+    train(args.input_path, hyper_params, model)
+
+    # Save out the parameters.
+    param_path = os.path.abspath(os.path.normpath(args.param_path))
+    torch.save(model.state_dict(), param_path)
+    print(f"Saved out trained model parameters at: {args.output_parameters}")
 
 
-def train(num_iterations):
-    with open("input.txt", "r", encoding="utf-8") as f:
+def train(input_path, hyper_params, model):
+
+    print(f"Reading {input_path}...")
+    with open(input_path, "r", encoding="utf-8") as f:
         text = f.read()
 
     print(f"Length of dataset in characters: {len(text)}")
 
-    # Get unique characters from data set
-    chars = sorted(list(set(text)))
-    vocab_size = len(chars)
-    print(f"Vocabulary: {chars}")
-    print(f"Vocab size: {vocab_size}")
-
-    # Create mapping & functions to convert between characters and integers.
-    char_to_int = {char: i for i, char in enumerate(chars)}
-    int_to_char = {i: char for i, char in enumerate(chars)}
-    encode = lambda s: [char_to_int[c] for c in s]
-    decode = lambda l: [int_to_char[i] for i in l]
-
     # Create a tensor and encode the data.
-    data = torch.tensor(encode(text), dtype=torch.long)
-    print(data.shape, data.dtype)
+    encoded_text = ASCII_TRANSCODER.encode(text)
+    data = torch.tensor(encoded_text, dtype=torch.long)
 
     # Separate data into training & validation sets.
     train_data_size = int(0.9 * len(data))
@@ -50,17 +78,7 @@ def train(num_iterations):
     # Seed for deterministic results
     torch.manual_seed(1337)
 
-    # Set up our model's hyper parameters.
-    hyper_params = HyperParameters(
-        train_iters=num_iterations,
-    )
-
-    print(
-        f"Starting training with {hyper_params}"
-    )
-
-    # Create the model
-    model = GPT(vocab_size, hyper_params).to(hyper_params.device)
+    print(f"Starting training with {hyper_params}")
 
     # Create an Adam optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=hyper_params.learning_rate)
@@ -72,15 +90,6 @@ def train(num_iterations):
         # Evaluate the loss
         logits, loss = model(inputs, targets)
 
-        # Estimate and print the optimization progress at every 1 percentage.
-        if train_iter % (hyper_params.train_iters / 100) == 0:
-            train_loss = estimate_loss(model, train_data, hyper_params)
-            val_loss = estimate_loss(model, val_data, hyper_params)
-            progress_percentage = float(train_iter) / hyper_params.train_iters * 100.0
-            print(
-                f"progress: {progress_percentage:.01f}%, training iteration: {train_iter}/{hyper_params.train_iters}, training loss: {train_loss:.05f}, validation loss: {val_loss:.05f}"
-            )
-
         # Zero out the gradients
         optimizer.zero_grad(set_to_none=True)
 
@@ -90,13 +99,16 @@ def train(num_iterations):
         # Update the parameters based on gradients to minimize loss.
         optimizer.step()
 
-    # Generate some data
-    inputs = torch.zeros((1, 1), dtype=torch.long).to(hyper_params.device)
-    predictions = model.generate(inputs, 400, hyper_params)
-    int_chars = predictions[0].tolist()
-    chars = decode(int_chars)
-    string = "".join(chars)
-    print(string)
+        # Estimate and print the optimization progress at every 1 percentage.
+        if train_iter % (hyper_params.train_iters / 100) == 0:
+            train_loss = estimate_loss(model, train_data, hyper_params)
+            val_loss = estimate_loss(model, val_data, hyper_params)
+            progress_percentage = (
+                float(train_iter + 1) / hyper_params.train_iters * 100.0
+            )
+            print(
+                f"progress: {progress_percentage:.01f}%, training iteration: {train_iter + 1}/{hyper_params.train_iters}, training loss: {train_loss:.05f}, validation loss: {val_loss:.05f}"
+            )
 
 
 def get_batch(data, hyper_params):

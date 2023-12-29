@@ -1,2 +1,8 @@
+# Vim swap files
 *.sw[pon]
+
+# Python cache files
 *.pyc
+
+# Trained model parameter files.
+*.pth
