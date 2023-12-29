@@ -19,6 +19,13 @@ def main():
         "train.py", description="Launches training for a language model"
     )
     parser.add_argument(
+        "-s",
+        "--seed",
+        help="Seed value to produce deterministic results.",
+        default=1337,
+        type=int,
+    )
+    parser.add_argument(
         "-n",
         "--num-iterations",
         help="Number of training iterations.",
@@ -63,6 +70,8 @@ def main():
 
     args = parser.parse_args()
 
+    # Seed for deterministic results
+    torch.manual_seed(args.seed)
 
     # Set up our model's hyper parameters.
     hyper_params = HyperParameters(
@@ -83,7 +92,7 @@ def main():
     # Should we load existing optimizer state?
     if args.input_optimizer_path:
         input_optimizer_state = torch.load(args.input_optimizer_path)
-        model.load_state_dict(input_optimizer_state)
+        optimizer.load_state_dict(input_optimizer_state)
 
     output_parameters_path = os.path.abspath(os.path.normpath(args.output_parameters_path))
     output_optimizer_path = os.path.abspath(os.path.normpath(args.output_optimizer_path))
@@ -116,9 +125,6 @@ def train(input_path, hyper_params, model, optimizer):
     train_data_size = int(0.9 * len(data))
     train_data = data[:train_data_size]
     val_data = data[train_data_size:]
-
-    # Seed for deterministic results
-    torch.manual_seed(1337)
 
     print(f"Starting training with {hyper_params}")
 

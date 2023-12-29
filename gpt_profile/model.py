@@ -120,12 +120,16 @@ class GPT(nn.Module):
         return logits, loss
 
     def generate(self, inputs, max_new_tokens):
-        for _ in range(max_new_tokens):
+        num_generated = 0
+        while True:
+            if num_generated == max_new_tokens:
+                break
+
             # Crop input to last block_size tokens for making predictions
-            inputs_cropped = inputs[:, -self.hyper_params.block_size:]
+            inputs = inputs[:, -self.hyper_params.block_size:]
 
             # Compute predictions
-            logits, _ = self(inputs_cropped)
+            logits, _ = self(inputs)
 
             # Take the last time step
             logits = logits[:, -1, :]
@@ -139,7 +143,9 @@ class GPT(nn.Module):
             # Append index to sequence to generate max_new_tokens number of chars
             inputs = torch.cat((inputs, next_input), dim=1)
 
-        return inputs
+            num_generated += 1
+
+            yield next_input
 
 
 class Block(nn.Module):
