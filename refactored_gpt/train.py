@@ -108,6 +108,7 @@ def main():
 
     # Save out the parameters one last time.
     torch.save(model.state_dict(), output_parameters_path)
+    torch.save(optimizer.state_dict(), output_optimizer_path)
     print(f"Saved out trained model parameters at: {args.output_parameters_path}")
 
 
